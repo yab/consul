@@ -1,64 +1,53 @@
-// Package retry provides a generic retry mechanism
-// which can be used in tests.
+// Package retry provides support for repeating operations in tests.
+//
+// A sample retry operation looks like this:
+//
+//   func TestX(t *testing.T) {
+//       for r := retry.OneSec(); r.Next(t.FailNow); {
+//           if err := foo(); err != nil {
+//               t.Log("f: ", err)
+//               continue
+//           }
+//           break
+//       }
+//   }
+//
+// A sample retry operation which exits a test with a message
+// looks like this:
+//
+//   func TestX(t *testing.T) {
+//       for r := retry.OneSec(); r.Next(func(){ t.Fatal("foo failed") }); {
+//           if err := foo(); err != nil {
+//               t.Log("f: ", err)
+//               continue
+//           }
+//           break
+//       }
+//   }
 package retry
 
 import "time"
 
-const (
-	// Timeout is the default time span for which an operation
-	// should be retried.
-	Timeout = time.Second
+// OneSec repeats an operation for one second and waits 25ms in between.
+func OneSec() *Timer {
+	return &Timer{Timeout: time.Second, Wait: 25 * time.Millisecond}
+}
 
-	// Wait is the time between two retry attempts.
-	Wait = 25 * time.Millisecond
-)
+// ThreeTimes repeats an operation three times and waits 25ms in between.
+func ThreeTimes() *Counter {
+	return &Counter{Count: 3, Wait: 25 * time.Millisecond}
+}
 
-// Retryer provides an interface for retrying an operation
-// repeatedly until it either succeeds or times out. The
-// Failer will be called when on timeout.
-//
-// Retryer does not accept a callback function to execute
-// the tests to keep the file:line information generated
-// by test output correct.
-//
-//   func TestX(t *testing.T) {
-//       for r := retry.For{}{}; r.Next(); {
-// 		     if err := f(); err != nil {
-// 			     t.Log("f: ", err)
-// 			     continue
-// 		     }
-// 		     break
-// 	     }
-//   }
+// Retryer provides an interface for repeating operations
+// until they succeed or an exit condition is met.
 type Retryer interface {
-	// Next returns true if the operation can be retried.
-	// If not, it will call t.FailNow() and return false.
-	Next(t Failer) bool
-
-	// Reset configures the retryer for re-use.
-	Reset()
+	// Next returns true if the operation should be repeated.
+	// Otherwise, it calls fail and returns false.
+	Next(fail func()) bool
 }
 
-// Failer is an interface compatible with *testing.T.
-type Failer interface {
-	FailNow()
-}
-
-// R returns a Timer with default configuration.
-func R() *Timer {
-	return &Timer{Timeout: Timeout, Wait: Wait}
-}
-
-// Times returns a Counter with default configuration.
-func Times(n int) *Counter {
-	return &Counter{Count: n, Wait: Wait}
-}
-
-// Counter implements a retryer which retries
-// an operation a specicific number of times.
-// The first operation will be executed immediately
-// and all subsequent operations will return after
-// the wait period.
+// Counter repeats an operation a given number of
+// times and waits between subsequent operations.
 type Counter struct {
 	Count int
 	Wait  time.Duration
@@ -66,14 +55,9 @@ type Counter struct {
 	count int
 }
 
-// Next returns true as long as the number
-// of retries has not been reached. The
-// first invocation will return immediately.
-// All subsequent calls will return after the
-// Wait period.
-func (r *Counter) Next(t Failer) bool {
+func (r *Counter) Next(fail func()) bool {
 	if r.count == r.Count {
-		t.FailNow()
+		fail()
 		return false
 	}
 	if r.count > 0 {
@@ -83,15 +67,8 @@ func (r *Counter) Next(t Failer) bool {
 	return true
 }
 
-// Reset configures the retryer for re-use.
-func (r *Counter) Reset() {
-	r.count = 0
-}
-
-// Timer implements a time-based retryer
-// which iterates until a certain amount of
-// time has elapsed. Between iterations it
-// will wait the time set in Wait.
+// Timer repeats an operation for a given amount
+// of time and waits between subsequent operations.
 type Timer struct {
 	Timeout time.Duration
 	Wait    time.Duration
@@ -101,25 +78,15 @@ type Timer struct {
 	stop time.Time
 }
 
-// Next returns true as long as the timeout
-// has not elapsed. The first invocation will
-// set the deadline for the timeout and
-// will return immediately. All subsequent
-// calls will return after the Wait period.
-func (r *Timer) Next(t Failer) bool {
+func (r *Timer) Next(fail func()) bool {
 	if r.stop.IsZero() {
 		r.stop = time.Now().Add(r.Timeout)
 		return true
 	}
 	if time.Now().After(r.stop) {
-		t.FailNow()
+		fail()
 		return false
 	}
 	time.Sleep(r.Wait)
 	return true
-}
-
-// Reset configures the retryer for re-use.
-func (r *Timer) Reset() {
-	r.stop = time.Time{}
 }
