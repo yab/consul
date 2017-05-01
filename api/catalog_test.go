@@ -16,14 +16,14 @@ func TestCatalog_Datacenters(t *testing.T) {
 
 	catalog := c.Catalog()
 
-	for r := retry.R(); r.Next(t); {
+	for r := retry.OneSec(); r.Next(t.FailNow); {
 		datacenters, err := catalog.Datacenters()
 		if err != nil {
 			t.Log("catalog.Datacenters: ", err)
 			continue
 		}
 		if len(datacenters) == 0 {
-			t.Logf("got 0 datacenters want at least one")
+			t.Log("got 0 datacenters want at least one")
 			continue
 		}
 		break
@@ -36,14 +36,14 @@ func TestCatalog_Nodes(t *testing.T) {
 
 	catalog := c.Catalog()
 
-	for r := retry.R(); r.Next(t); {
+	for r := retry.OneSec(); r.Next(func() { t.Fatal("no nodes") }); {
 		nodes, meta, err := catalog.Nodes(nil)
 		if err != nil {
 			t.Log("catalog.Nodes: ", err)
 			continue
 		}
 		if meta.LastIndex == 0 {
-			t.Logf("got last index 0 want > 0")
+			t.Log("got last index 0 want > 0")
 			continue
 		}
 		want := []*Node{
